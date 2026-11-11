@@ -1,40 +1,57 @@
 # Employee Management API
 
-A beginner-friendly REST API built with FastAPI. It supports creating, listing,
-retrieving, updating, and deleting employee records. Records are stored in a
-Python list, so they are cleared whenever the application restarts.
+A beginner-friendly REST API built with FastAPI, SQLAlchemy, and SQLite. Employee
+records are saved in `employee.db` and remain available after the server restarts.
 
-## Requirements
+## Project files
 
-- Python 3.10 or newer
-- pip
+- `app/__init__.py` marks `app` as a Python package.
+- `app/database.py` configures the SQLite connection and provides one database
+  session for each request.
+- `app/models.py` defines the SQLAlchemy `Employee` table, including the primary
+  key, unique email, required fields, and positive-salary database constraint.
+- `app/schemas.py` defines Pydantic request and response schemas and validates
+  email format, non-blank text, and positive salary.
+- `app/crud.py` contains the SQLAlchemy queries for create, read, update, and
+  delete operations.
+- `app/main.py` creates the database table and defines the FastAPI endpoints.
+- `main.py` preserves the previous `uvicorn main:app` launch command.
+- `employee.db` is created automatically next to the project files and is
+  excluded from Git so employee data is not committed.
 
 ## Installation and execution
 
-Open a terminal in the project directory and run:
+Requires Python 3.10 or newer. From PowerShell in the project directory:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+The existing command remains available:
+
+```powershell
 python -m uvicorn main:app --reload
 ```
 
-The API will be available at <http://127.0.0.1:8000>.
+The API is available at <http://127.0.0.1:8000>. The SQLite database and
+`employees` table are created automatically when the application starts.
 
 ## API endpoints
 
 | Method | Path | Purpose | Success status |
 |---|---|---|---|
-| `POST` | `/employees` | Add an employee. Returns `409 Conflict` if the ID already exists. | `201 Created` |
-| `GET` | `/employees` | Retrieve all employees. Returns an empty list if there are none. | `200 OK` |
-| `GET` | `/employees/{employee_id}` | Retrieve one employee. Returns `404 Not Found` if missing. | `200 OK` |
-| `PUT` | `/employees/{employee_id}` | Replace all fields of an existing employee. Returns `404 Not Found` if missing and `400 Bad Request` if the body ID differs from the URL ID. | `200 OK` |
-| `DELETE` | `/employees/{employee_id}` | Delete an employee and return a confirmation message. Returns `404 Not Found` if missing. | `200 OK` |
+| `POST` | `/employees` | Create an employee. Duplicate employee IDs or email addresses return `409 Conflict`. | `201 Created` |
+| `GET` | `/employees` | Retrieve all employees, or an empty list if there are none. | `200 OK` |
+| `GET` | `/employees/{employee_id}` | Retrieve an employee by ID. Returns `404 Not Found` if missing. | `200 OK` |
+| `PUT` | `/employees/{employee_id}` | Replace an employee's details. The body ID must match the URL ID. Returns `404 Not Found` if missing, `400 Bad Request` for an ID mismatch, or `409 Conflict` for a duplicate email. | `200 OK` |
+| `DELETE` | `/employees/{employee_id}` | Delete an employee. Returns `404 Not Found` if missing. | `200 OK` |
 
-### Employee JSON body
+### Example request body
 
-Use the following body for both `POST` and `PUT`:
+Use this JSON body for `POST /employees` and `PUT /employees/1`:
 
 ```json
 {
@@ -47,27 +64,23 @@ Use the following body for both `POST` and `PUT`:
 }
 ```
 
-The employee ID must be unique when creating a record. Names, departments,
-and designations cannot be blank; emails must be valid; and salary must be
-greater than zero. Invalid input returns FastAPI's validation response with
-status `422 Unprocessable Entity`.
+The API requires an integer employee ID, a valid email address, non-blank name,
+department, and designation, and a salary greater than zero. Invalid request
+data returns `422 Unprocessable Entity`. Unexpected database errors are logged
+and return `500 Internal Server Error`.
 
-## Try it in Swagger UI
+## Test with Swagger UI
 
-1. Start the server using the command above.
-2. Open <http://127.0.0.1:8000/docs> in a browser.
-3. Select an endpoint and click **Try it out**.
-4. For `POST /employees`, paste the example JSON body and click **Execute**.
-5. Try `GET /employees` or `GET /employees/1` to view the record.
-6. To update it, use `PUT /employees/1` with a complete JSON body whose
-   `employee_id` is also `1`. Use `DELETE /employees/1` to remove it.
+1. Start the server using either command above.
+2. Open <http://127.0.0.1:8000/docs>.
+3. Expand an endpoint, select **Try it out**, and provide its path parameters or
+   JSON request body.
+4. Create an employee with `POST /employees`, then try the GET, PUT, and DELETE
+   endpoints using the same employee ID.
 
-## How the code is organized
+## How database sessions work
 
-- `Employee` is a Pydantic model. It validates incoming employee fields,
-  including email format, positive salary, and non-blank text.
-- `employees` is the in-memory Python list that stores records.
-- `find_employee_index` centralizes employee lookup and raises a `404` error
-  when the requested ID does not exist.
-- Each FastAPI endpoint handles one CRUD operation and declares its success
-  response model or status code.
+FastAPI calls `get_db` in `app/database.py` for each request. The dependency
+opens a SQLAlchemy session and closes it when the request finishes. The CRUD
+functions use that session to query or update SQLite; the employee list is no
+longer held in Python memory.
