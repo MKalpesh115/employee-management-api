@@ -250,3 +250,72 @@ The test fixtures select an in-memory SQLite database and a test-only JWT key,
 so the tests do not alter the development `employee.db` or use its signing key.
 The tests cover registration, login, invalid credentials, token protection,
 employee CRUD, not-found responses, and invalid input.
+
+## Continuous integration with GitHub Actions
+
+**Continuous Integration (CI)** automatically checks code changes. This
+project's CI workflow installs the Python dependencies, runs the existing
+pytest suite, and builds the Docker image locally on GitHub's runner. It does
+not deploy the API or push the image to a registry.
+
+The workflow is [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+1. A GitHub-hosted `ubuntu-latest` runner checks out the repository and sets up
+   Python 3.12.
+2. It installs dependencies from `requirements.txt`.
+3. It runs `python -m pytest -q` using a CI-only dummy JWT key and
+   `DATABASE_URL=sqlite://`. The test fixtures also select an in-memory SQLite
+   database before importing the application, keeping development and
+   production databases out of CI.
+4. Only when the test job passes, a dependent job builds the existing
+   `Dockerfile` as `employee-management-api`. The image is not pushed anywhere.
+
+Workflow triggers:
+
+- Every push to `main`.
+- Every pull request targeting `main`.
+
+### View a workflow run
+
+1. Commit and push the workflow and documentation:
+
+   ```powershell
+   git add .github/workflows/ci.yml README.md
+   git commit -m "Add GitHub Actions CI workflow"
+   git push origin main
+   ```
+
+2. Open the repository on GitHub and select the **Actions** tab.
+3. Select **CI** and open the newest run to see its jobs and step logs.
+4. A green check means both tests and the Docker build passed. A red cross
+   indicates a failed job; the failing step's log contains the error. If tests
+   fail, the Docker image job is skipped because it depends on the test job.
+
+For regular development, you can push a feature branch and open a pull request
+targeting `main`; the same checks will run before merging.
+
+### Test the pipeline
+
+- To test a successful run, make a small safe change (for example, fix a typo
+  in this README), commit it to a branch, push the branch, and open a pull
+  request targeting `main`. Confirm the test and Docker build jobs pass.
+- To confirm failures stop the build, temporarily change an assertion in a test
+  so it fails, run `python -m pytest -q` locally, then push that temporary
+  change to a test branch and open a pull request. Confirm the test job fails
+  and the Docker build job is skipped. Revert the temporary test change and
+  push the fix; do not merge the intentionally failing change.
+
+### Troubleshooting
+
+- **Dependency installation failed:** open the `Install dependencies` log,
+  confirm the requirement exists in `requirements.txt`, and check that its
+  supported Python version includes Python 3.12.
+- **JWT configuration error:** the workflow provides a dummy key longer than
+  the application's 32-character minimum. Tests also set a test-only key in
+  `tests/conftest.py`; CI does not need repository secrets or `.env`.
+- **Database or test data issue:** confirm tests still use `DATABASE_URL=sqlite://`
+  and do not point at `employee.db` or a production database.
+- **Pytest failed:** inspect the first failing assertion and traceback in the
+  `Run tests` logs, reproduce locally with `python -m pytest -q`, and push a fix.
+- **Docker build failed:** inspect the `Build Docker image` logs and reproduce
+  locally with `docker build --tag employee-management-api .`.
