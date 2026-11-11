@@ -8,7 +8,9 @@ employee CRUD operations. Employee and user records persist in `employee.db`.
 
 - `app/__init__.py` marks `app` as a Python package.
 - `app/database.py` configures SQLite and supplies a SQLAlchemy session per
-  request. Tests can select a separate database through `DATABASE_URL`.
+  request. It reads `DATABASE_URL` from the environment and creates the parent
+  folder for file-based SQLite databases before connecting. Tests can select a
+  separate database through `DATABASE_URL`.
 - `app/models.py` defines the employee and user database tables.
 - `app/schemas.py` defines Pydantic request and response schemas.
 - `app/auth.py` hashes passwords, registers and authenticates users, issues and
@@ -22,6 +24,8 @@ employee CRUD operations. Employee and user records persist in `employee.db`.
 - `tests/test_auth.py` and `tests/test_employees.py` test authentication and
   employee endpoints.
 - `main.py` preserves the previous `uvicorn main:app` launch command.
+- `.env.example` documents the required secret variable without containing a
+  real secret.
 - `.gitignore` excludes local databases, test artifacts, and environment files.
 
 ## Installation and execution
@@ -32,23 +36,125 @@ Requires Python 3.10 or newer. In PowerShell from the project directory:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-$env:JWT_SECRET_KEY = (python -c "import secrets; print(secrets.token_urlsafe(32))")
-python -m uvicorn app.main:app --reload
+Copy-Item .env.example .env
+Set-Content -Path .env -Value ("JWT_SECRET_KEY=" + (python -c "import secrets; print(secrets.token_urlsafe(32))"))
+python -m uvicorn app.main:app --env-file .env --reload
 ```
 
 Keep the generated signing key private. The application requires
-`JWT_SECRET_KEY` to be set to at least 32 characters before it starts. The
-PowerShell environment setting applies to the current terminal session; set it
-again in a new terminal. Do not commit the key or a populated database.
+`JWT_SECRET_KEY` to be set to at least 32 characters before it starts. The local
+Uvicorn command loads it from `.env`; do not commit or share that file.
 
 The existing launch command also works:
 
 ```powershell
-python -m uvicorn main:app --reload
+python -m uvicorn main:app --env-file .env --reload
 ```
 
 The API is available at <http://127.0.0.1:8000>. The database tables are created
 automatically when the application starts.
+
+## Run the application with Docker
+
+The Docker setup adds three files:
+
+- `Dockerfile` builds the API image on the official lightweight `python:3.12-slim`
+  image, installs `requirements.txt`, copies the application, and starts Uvicorn
+  listening on `0.0.0.0:8000`. The app runs as a non-root user.
+- `.dockerignore` prevents Git files, virtual environments, caches, local
+  databases, tests, and `.env` credentials from being sent to the image build.
+- `compose.yaml` maps host port `8000` to container port `8000`, provides the
+  JWT secret from the environment, and mounts a named persistent volume at
+  `/data` for SQLite.
+
+Docker Compose sets `DATABASE_URL` to `sqlite:////data/employee.db`. The
+application creates `/data` if needed before SQLAlchemy connects. Local
+execution continues to use the existing project-level `employee.db` default.
+
+### Prepare the JWT secret
+
+In PowerShell, create a local `.env` file containing a randomly generated secret:
+
+```powershell
+Copy-Item .env.example .env
+Set-Content -Path .env -Value ("JWT_SECRET_KEY=" + (python -c "import secrets; print(secrets.token_urlsafe(32))"))
+```
+
+`.env` is ignored by Git and excluded from the Docker build. Do not share or
+commit it. Compose reads it for variable substitution and passes only the
+`JWT_SECRET_KEY` setting into the container.
+
+### Build and run with Docker Compose
+
+```powershell
+docker compose up --build -d
+```
+
+This builds the image if needed and starts the application in the background.
+Open <http://localhost:8000/docs> for Swagger UI.
+
+### Build and run with Docker commands
+
+Build the image:
+
+```powershell
+docker build -t employee-management-api .
+```
+
+Run the container with the persistent database volume:
+
+```powershell
+docker run --name employee-api -p 8000:8000 --env-file .env -e DATABASE_URL=sqlite:////data/employee.db -v employee_data:/data employee-management-api
+```
+
+The same named volume, `employee_data`, keeps SQLite data when the container is
+removed and recreated.
+
+### Useful Docker commands
+
+View running containers:
+
+```powershell
+docker ps
+```
+
+Follow logs from the standalone container:
+
+```powershell
+docker logs -f employee-api
+```
+
+Stop and remove the standalone container (the named data volume is retained):
+
+```powershell
+docker stop employee-api
+docker rm employee-api
+```
+
+View Compose logs:
+
+```powershell
+docker compose logs -f api
+```
+
+Stop and remove the Compose container and network (the named data volume is
+retained):
+
+```powershell
+docker compose down
+```
+
+To delete the saved database too, use `docker compose down --volumes`; this
+permanently removes the Compose-managed database volume.
+
+### Verify with Swagger UI
+
+1. Start Docker Compose and open <http://localhost:8000/docs>.
+2. Register a user with `POST /auth/register`.
+3. Log in with `POST /auth/login` and copy the returned `access_token`.
+4. Click **Authorize** in Swagger UI and provide the token as a bearer token.
+5. Try the employee CRUD endpoints. They should work with the token and return
+   `401 Unauthorized` without it.
 
 ## Authentication
 

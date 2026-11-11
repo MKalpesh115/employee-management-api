@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env or the shell environment}
+      DATABASE_URL: sqlite:////data/employee.db
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - employee_data:/data
+    restart: unless-stopped
+
+volumes:
+  employee_data:
