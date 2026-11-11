@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 import logging
 
 from fastapi import Depends, FastAPI, Request, status
@@ -6,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import models
+from app.auth import get_current_user, get_secret_key, router as auth_router
 from app.crud import (
     create_employee,
     delete_employee,
@@ -14,18 +17,27 @@ from app.crud import (
     update_employee,
 )
 from app.database import engine, get_db
+from app.models import User
 from app.schemas import EmployeeCreate, EmployeeResponse, EmployeeUpdate
 
 logger = logging.getLogger(__name__)
 
-# Create the SQLite database and employees table when the application starts.
-models.Base.metadata.create_all(bind=engine)
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Check configuration and create any missing database tables."""
+    get_secret_key()
+    models.Base.metadata.create_all(bind=engine)
+    yield
+
 
 app = FastAPI(
     title="Employee Management API",
     description="A beginner-friendly API for managing employee records.",
     version="1.0.0",
+    lifespan=lifespan,
 )
+app.include_router(auth_router)
 
 
 @app.exception_handler(SQLAlchemyError)
@@ -49,12 +61,16 @@ async def handle_database_error(
 def create_employee_endpoint(
     employee: EmployeeCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> EmployeeResponse:
     return create_employee(db, employee)
 
 
 @app.get("/employees", response_model=list[EmployeeResponse])
-def get_employees_endpoint(db: Session = Depends(get_db)) -> list[EmployeeResponse]:
+def get_employees_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[EmployeeResponse]:
     return get_employees(db)
 
 
@@ -62,6 +78,7 @@ def get_employees_endpoint(db: Session = Depends(get_db)) -> list[EmployeeRespon
 def get_employee_endpoint(
     employee_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> EmployeeResponse:
     return get_employee(db, employee_id)
 
@@ -71,6 +88,7 @@ def update_employee_endpoint(
     employee_id: int,
     employee: EmployeeUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> EmployeeResponse:
     return update_employee(db, employee_id, employee)
 
@@ -79,6 +97,7 @@ def update_employee_endpoint(
 def delete_employee_endpoint(
     employee_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     delete_employee(db, employee_id)
     return {"message": "Employee deleted successfully"}

@@ -3,6 +3,12 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+!.env.example
 employee.db
 employee.db-shm
 employee.db-wal
+test_employee.db
+test_employee.db-shm
+test_employee.db-wal
+.pytest_cache/
